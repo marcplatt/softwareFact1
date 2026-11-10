@@ -1,3 +1,4 @@
+import { NotificationInboxPrototype } from "~/components/notification-inbox.prototype";
 import { Outlet } from "react-router";
 import type { Route } from "./+types/layout.app";
 import { Sidebar } from "~/components/sidebar";
@@ -235,6 +236,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         isTeamAdmin={userIsTeamAdmin}
       />
       <main className="flex-1 overflow-y-auto">
+        <NotificationInboxPrototype placement="workspace" />
         <Outlet />
       </main>
       <DevUI
