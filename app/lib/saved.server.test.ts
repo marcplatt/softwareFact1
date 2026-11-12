@@ -145,7 +145,7 @@ it("excludes saved data for courses without content access", () => {
   );
 });
 
-it("keeps Bookmarks and Notes after an approved Refund so they return with renewed access", async () => {
+it("keeps Bookmarks and Notes after an Approved Refund Request so they return with renewed access", async () => {
   const purchase = db
     .insert(schema.purchases)
     .values({
