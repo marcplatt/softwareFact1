@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#1433b5"/><stop offset="1" stop-color="#12152d"/></linearGradient>
+    <linearGradient id="accent" x2="1" y2="1"><stop stop-color="#f557c1"/><stop offset="1" stop-color="#ffc98b"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#f557c1" stop-opacity=".65"/><stop offset="1" stop-color="#f557c1" stop-opacity="0"/></radialGradient>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".72" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".07"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter>
+  </defs>
+  <g filter="url(#grain)">
+    <path fill="url(#bg)" d="M0 0h960v540H0z"/>
+    <ellipse cx="760" cy="160" rx="420" ry="350" fill="url(#glow)"/>
+    <circle cx="480" cy="270" r="238" fill="none" stroke="#fff" stroke-opacity=".14"/>
+    <circle cx="480" cy="270" r="205" fill="none" stroke="#fff" stroke-opacity=".08"/>
+    <path d="M40 80H920M40 460H920" stroke="white" stroke-opacity=".22"/>
+    <g transform="translate(250 115)"><path d="M0 0V310H470" fill="none" stroke="#a3b8ff" stroke-width="2"/><g fill="#ff98d8"><rect x="35" y="210" width="65" height="100"/><rect x="135" y="155" width="65" height="155"/><rect x="235" y="85" width="65" height="225"/><rect x="335" y="15" width="65" height="295"/></g><path d="M10 210 140 120 250 150 430 0" fill="none" stroke="#edff85" stroke-width="10"/><g fill="#edff85" stroke="#18225e" stroke-width="5"><circle cx="140" cy="120" r="14"/><circle cx="250" cy="150" r="14"/><circle cx="430" cy="0" r="14"/></g></g>
+    <g fill="#fff" font-family="monospace" font-size="16" letter-spacing="3"><text x="40" y="52">CADENCE / FIELDNOTES</text><text x="920" y="52" text-anchor="end">04</text><text x="40" y="504">SIGNAL / STORY</text><text x="920" y="504" text-anchor="end">↗</text></g>
+  </g>
+</svg>

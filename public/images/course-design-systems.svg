@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#e63c27"/><stop offset="1" stop-color="#12152d"/></linearGradient>
+    <linearGradient id="accent" x2="1" y2="1"><stop stop-color="#ffbd70"/><stop offset="1" stop-color="#ffc98b"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#ffbd70" stop-opacity=".65"/><stop offset="1" stop-color="#ffbd70" stop-opacity="0"/></radialGradient>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".72" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".07"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter>
+  </defs>
+  <g filter="url(#grain)">
+    <path fill="url(#bg)" d="M0 0h960v540H0z"/>
+    <ellipse cx="760" cy="160" rx="420" ry="350" fill="url(#glow)"/>
+    <circle cx="480" cy="270" r="238" fill="none" stroke="#fff" stroke-opacity=".14"/>
+    <circle cx="480" cy="270" r="205" fill="none" stroke="#fff" stroke-opacity=".08"/>
+    <path d="M40 80H920M40 460H920" stroke="white" stroke-opacity=".22"/>
+    <g transform="translate(280 115) rotate(-8 200 150)"><rect width="400" height="300" rx="20" fill="#301244"/><g fill="#ffcb9b"><rect x="24" y="24" width="218" height="110" rx="55"/><rect x="24" y="158" width="100" height="118" rx="12"/></g><circle cx="322" cy="79" r="55" fill="#eaff81"/><path d="M148 276V158H266Z" fill="#fc5cb8"/><rect x="290" y="158" width="86" height="118" rx="12" fill="#995fff"/><path d="M-40 55H440M68-35V335" stroke="#fff" stroke-opacity=".4" stroke-dasharray="5 7"/></g>
+    <g fill="#fff" font-family="monospace" font-size="16" letter-spacing="3"><text x="40" y="52">CADENCE / FIELDNOTES</text><text x="920" y="52" text-anchor="end">03</text><text x="40" y="504">FORM / FUNCTION</text><text x="920" y="504" text-anchor="end">↗</text></g>
+  </g>
+</svg>
