@@ -5,7 +5,7 @@ name: Agent — Implement A Spec
 #
 # Everything before this ran once, on one ticket, because a person put a label
 # on it. This one takes a *spec*, turns it into a queue of tickets, and then
-# works the queue on its own until there is nothing left in it — and if nobody
+# works the queue as reviewed pull requests are merged — and if nobody
 # ever labels anything, a clock starts it anyway.
 #
 # There are two loops here, and they are different loops. Keep them apart in
@@ -16,7 +16,7 @@ name: Agent — Implement A Spec
 #     a reviewer can check. Nothing is built. The output is tickets.
 #
 #   LOOP TWO — CHAIN.  Runs once per ticket. Take the frontier ticket — the
-#     lowest open position whose dependencies are all closed — build it, open
+#     lowest open position whose dependencies have merged — build it, open
 #     a draft PR, then start this workflow again. Finishing one ticket is what
 #     triggers the next. That is the chain, and it is four lines at the bottom
 #     of this file.
@@ -200,6 +200,14 @@ jobs:
           echo "spec=$spec" >> "$GITHUB_OUTPUT"
           echo "Working spec #$spec"
 
+          # A failed decomposition needs a person before cron may retry it.
+          gh issue view "$spec" --json state,labels > /tmp/spec-state.json
+          if jq -e '.state != "OPEN" or any(.labels[]; .name == "agent:blocked")' /tmp/spec-state.json > /dev/null; then
+            echo "Spec #$spec is closed or parked. Remove agent:blocked to retry an open spec."
+            echo "mode=no-spec" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # 2. Does a queue exist for it yet? Every ticket this workflow
           #    writes is labelled `spec:<number>`. No such issues, open or
           #    closed, means the spec has never been decomposed.
@@ -237,6 +245,7 @@ jobs:
             [ .[]
               | select(.state=="OPEN")
               | select(.labels | index("agent:blocked") | not)
+              | select(.labels | index("agent:awaiting-review") | not)
               | select(all(.depends[]; . as $d | $closed | index($d) != null))
             ] | .[0].number // empty
           ' /tmp/queue-sorted.json)
@@ -401,10 +410,20 @@ jobs:
           gh issue comment "$SPEC" --body \
             "Decomposed into ${total} tickets, labelled \`spec:${SPEC}\`. The chain takes it from here. <!-- factory:status -->"
 
+      - name: Park the spec after a failed decomposition
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+        run: |
+          set -euo pipefail
+          gh label create "agent:blocked" --color B60205 \
+            --description "An agent run failed here. Its comment says how to retry" || true
+          gh issue edit "$SPEC" --add-label "agent:blocked"
+
   # ── LOOP TWO: implement one ticket ────────────────────────────────────────
   # Identical in spirit to agent-implement.yml, with one difference that makes
-  # it a queue rather than a one-off: it closes the ticket it finished, which
-  # is what lets the next run's `survey` step move the frontier forward.
+  # it a queue rather than a one-off: each PR closes its ticket when merged,
+  # which lets the next scheduled survey move the frontier forward.
   #
   # Like agent-implement.yml, every run pushes to a branch of its own: the run
   # id is in the name. A parked ticket that a person puts back in the queue is
@@ -623,7 +642,7 @@ jobs:
           # a chain that ended is worse than a red one.
           gh pr edit "$BRANCH" --add-label "agent:review"
 
-      - name: Close the ticket and move the queue on
+      - name: Update the ticket after the build
         if: always()
         env:
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
@@ -633,11 +652,13 @@ jobs:
           gh issue edit "$TICKET" --remove-label "agent:in-progress" || true
 
           if [ "${{ steps.ship.outputs.shipped }}" = "true" ]; then
-            # Closing it is what advances the frontier: the next run's survey
-            # sees this position as satisfied, and whatever depended on it
-            # becomes buildable.
-            gh issue close "$TICKET" \
-              --comment "Built and opened as a draft PR, ${PR_URL}, from \`${BRANCH}\` — [logs](${RUN_URL}). Closing so the queue moves on; the pull request is where the review happens. <!-- factory:status -->"
+            # The PR's Closes line closes this issue on merge. Until then,
+            # dependencies are unsatisfied and this ticket must not rebuild.
+            gh label create "agent:awaiting-review" --color C5DEF5 \
+              --description "Built as a PR; waiting for merge before dependents run" || true
+            gh issue edit "$TICKET" --add-label "agent:awaiting-review"
+            gh issue comment "$TICKET" \
+              --body "Built as draft PR ${PR_URL}, from \`${BRANCH}\` — [logs](${RUN_URL}). Waiting for merge before dependent tickets build. If the PR is closed without merging, remove \`agent:awaiting-review\` to rebuild. <!-- factory:status -->"
           else
             # Left open on purpose. A failed ticket must not silently drain
             # out of the queue, and it must not be retried forever either — so
@@ -664,6 +685,7 @@ jobs:
   # limit, so an empty queue is genuinely the only brake on it. That is worth
   # sitting with before you point this at your own repository.
   #
+  # Failed decomposition stops here; the spec is parked until a person retries.
   # It re-dispatches after a *failed* ticket too, and that is deliberate: the
   # implement job parks a ticket it could not finish with `agent:blocked`, and
   # `survey` skips a parked ticket, so the next run moves on to a different one
@@ -674,7 +696,8 @@ jobs:
     if: |
       always() &&
       needs.survey.result == 'success' &&
-      contains(fromJSON('["decompose", "implement"]'), needs.survey.outputs.mode)
+      ((needs.survey.outputs.mode == 'decompose' && needs.decompose.result == 'success') ||
+       (needs.survey.outputs.mode == 'implement' && needs.implement.result != 'cancelled'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
 

@@ -82,7 +82,7 @@ permissions:
 # One run per ticket. A second label event on the same issue waits for the
 # first to finish rather than building the same ticket twice at once.
 concurrency:
-  group: agent-implement-${{ github.event.issue.number }}
+  group: ${{ github.event.label.name == 'agent:implement' && format('agent-implement-{0}', github.event.issue.number) || format('ignore-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:

@@ -60,10 +60,9 @@ name: Agent — Review A Pull Request
 #         --description "Ask the review workflow to read this pull request"
 #
 # A CAUTION THAT COMES WITH IT
-#   `pull_request` (not `pull_request_target`), so a PR from a fork runs with
-#   a read-only token and no secrets — no FACTORY_PAT either, so the run
-#   fails at its first `gh` call. That means this workflow will not review a
-#   fork PR. That is the correct trade: reviewing a stranger's code
+#   `pull_request` (not `pull_request_target`). The job skips fork PRs, which
+#   have no repository secrets. That means this workflow will not review a
+#   fork PR. Reviewing a stranger's code
 #   with a writable token is how a factory gets robbed.
 
 on:
@@ -86,7 +85,7 @@ concurrency:
 
 jobs:
   review:
-    if: github.event.label.name == 'agent:review'
+    if: github.event.label.name == 'agent:review' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -336,10 +335,12 @@ jobs:
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
         run: |
           set -euo pipefail
-          if grep -q '## Standards:' /tmp/review-verdict.md; then
+          if ! grep -q '## Standards:' /tmp/review-verdict.md; then
+            echo "No verdict, so the PR stays a draft."
+          elif [ "$(gh pr view "$PR_NUMBER" --json isDraft --jq .isDraft)" = "true" ]; then
             gh pr ready "$PR_NUMBER"
           else
-            echo "No verdict, so the PR stays a draft."
+            echo "The PR is already ready for review."
           fi
 
       - name: Mark blocked on failure or a rejected push
