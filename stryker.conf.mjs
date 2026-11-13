@@ -48,6 +48,9 @@ const config = {
     // EISDIR error if this pattern is absent.
     ".claude/**",
     ".agents/**",
+    // Local Codex plugins and credentials are not needed by project tests.
+    ".codex/**",
+    ".codex-sf/**",
   ],
   tempDirName: ".stryker-tmp",
 };
