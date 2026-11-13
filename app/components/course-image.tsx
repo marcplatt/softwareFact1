@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { resolveCourseArtwork } from "~/modules/course-artwork";
 import { BookOpen } from "lucide-react";
 
 export function CourseImage({
@@ -12,7 +13,9 @@ export function CourseImage({
 }) {
   const [failed, setFailed] = useState(false);
 
-  if (!src || failed) {
+  const artworkSrc = resolveCourseArtwork(src, alt);
+
+  if (!artworkSrc || failed) {
     return (
       <div
         className={`flex items-center justify-center bg-muted ${className ?? ""}`}
@@ -24,7 +27,7 @@ export function CourseImage({
 
   return (
     <img
-      src={src}
+      src={artworkSrc}
       alt={alt}
       className={className}
       onError={() => setFailed(true)}
