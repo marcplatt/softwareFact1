@@ -129,7 +129,6 @@
         "app/modules/instructor-analytics/lib/instructor-analytics.ts",
         "app/modules/instructor-analytics/tests/instructor-analytics.test.ts",
         "app/routes/admin.categories.tsx",
-        "app/routes/courses.$slug.lessons.$lessonId.tsx",
         "app/routes/courses.$slug.purchase.tsx",
         "app/routes/courses.$slug.tsx",
         "app/routes/courses.tsx",
@@ -167,7 +166,12 @@
         "app/routes/admin.refunds.tsx",
         "app/routes/admin.users.tsx",
         "app/routes/courses.$slug.$moduleId.tsx",
-        "app/routes/courses.$slug.lessons.$lessonId.tsx",
+        "app/components/lesson-full.tsx",
+        "app/components/lesson-locked.tsx",
+        "app/components/lesson-curriculum.tsx",
+        "app/components/lesson-quiz.tsx",
+        "app/modules/lesson-viewer/index.server.ts",
+        "app/modules/lesson-viewer/lib/data.server.ts",
         "app/routes/courses.$slug.purchase.tsx",
         "app/routes/courses.$slug.tsx",
         "app/routes/courses.$slug.welcome.tsx",
@@ -233,7 +237,7 @@
     },
     {
       "files": [
-        "app/routes/courses.$slug.lessons.$lessonId.tsx",
+        "app/modules/lesson-viewer/index.server.ts",
         "request-logger/render.ts"
       ],
       "rules": {
