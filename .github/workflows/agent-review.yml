@@ -44,7 +44,8 @@ name: Agent — Review A Pull Request
 #   still a human's.
 #
 # WHAT IT NEEDS
-#   secrets.CLAUDE_CODE_OAUTH_TOKEN — the agent's auth token.
+#   secrets.CODEX_AUTH_JSON — the Codex ChatGPT login cache.
+#   vars.CODEX_MODEL — the Codex model to run.
 #   secrets.FACTORY_PAT — the factory's one token. Only the steps that call
 #     GitHub get it; the agent's step does not. It pushes the review's
 #     commits and posts its verdict and inline comments, so it needs
@@ -90,6 +91,8 @@ jobs:
     timeout-minutes: 30
 
     env:
+      CODEX_HOME: ${{ runner.temp }}/codex-${{ github.job }}
+      CODEX_MODEL: ${{ vars.CODEX_MODEL }}
       GH_REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       BRANCH: ${{ github.event.pull_request.head.ref }}
@@ -160,8 +163,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Install Codex
+        run: npm install -g @openai/codex
 
       - name: Migrate and seed the database
         # The pre-commit hook runs on every commit the agent makes, and the
@@ -183,11 +186,36 @@ jobs:
             exit 1
           fi
 
+      # Subscription auth is intended for trusted private automation. The secret
+      # is a snapshot: reseed it if Codex can no longer refresh the session.
+      - name: Supply Codex login credentials
+        shell: bash
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          set -euo pipefail
+          : "${CODEX_MODEL:?Set the CODEX_MODEL repository variable}"
+          : "${CODEX_AUTH_JSON:?Set the CODEX_AUTH_JSON repository secret}"
+          umask 077
+          mkdir -p "$CODEX_HOME"
+          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+          jq -e '.auth_mode == "chatgpt" and (.tokens.refresh_token | type == "string" and length > 0)' \
+            "$CODEX_HOME/auth.json" > /dev/null
+          # Register individual tokens for log masking as well as the JSON secret.
+          jq -r '.tokens | .[] | select(type == "string" and length > 0) | "::add-mask::" + .' \
+            "$CODEX_HOME/auth.json"
+          printf 'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n' > "$CODEX_HOME/config.toml"
+          codex login status
+
       - name: Review the pull request
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OUTPUT_DIR: ${{ runner.temp }}
         run: npx tsx .sandcastle/agent-workflows/review/review.ts
+
+      - name: Remove runner copy of Codex credentials
+        if: always()
+        shell: bash
+        run: rm -rf -- "${RUNNER_TEMP:?}/codex-${GITHUB_JOB:?}"
 
       - name: Push the review's fixes
         id: push

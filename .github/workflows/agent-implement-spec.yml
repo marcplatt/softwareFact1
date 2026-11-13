@@ -63,7 +63,8 @@ name: Agent — Implement A Spec
 #
 # WHAT IT NEEDS
 #
-#   secrets.CLAUDE_CODE_OAUTH_TOKEN — the agent's auth token. Both agents are
+#   secrets.CODEX_AUTH_JSON — the Codex ChatGPT login cache.
+#   vars.CODEX_MODEL — the Codex model to run. Both agents are
 #                               Sandcastle scripts in
 #                               .sandcastle/agent-workflows/implement-spec/.
 #   secrets.FACTORY_PAT       — a fine-grained PAT on this repository with
@@ -276,6 +277,8 @@ jobs:
     timeout-minutes: 30
 
     env:
+      CODEX_HOME: ${{ runner.temp }}/codex-${{ github.job }}
+      CODEX_MODEL: ${{ vars.CODEX_MODEL }}
       GH_REPO: ${{ github.repository }}
       SPEC: ${{ needs.survey.outputs.spec }}
 
@@ -303,16 +306,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Install Codex
+        run: npm install -g @openai/codex
+
+      # Subscription auth is intended for trusted private automation. The secret
+      # is a snapshot: reseed it if Codex can no longer refresh the session.
+      - name: Supply Codex login credentials
+        shell: bash
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          set -euo pipefail
+          : "${CODEX_MODEL:?Set the CODEX_MODEL repository variable}"
+          : "${CODEX_AUTH_JSON:?Set the CODEX_AUTH_JSON repository secret}"
+          umask 077
+          mkdir -p "$CODEX_HOME"
+          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+          jq -e '.auth_mode == "chatgpt" and (.tokens.refresh_token | type == "string" and length > 0)' \
+            "$CODEX_HOME/auth.json" > /dev/null
+          # Register individual tokens for log masking as well as the JSON secret.
+          jq -r '.tokens | .[] | select(type == "string" and length > 0) | "::add-mask::" + .' \
+            "$CODEX_HOME/auth.json"
+          printf 'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n' > "$CODEX_HOME/config.toml"
+          codex login status
 
       - name: Decompose the spec into a queue
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OUTPUT_DIR: ${{ runner.temp }}
         # Reads only. The queue comes back as queue.json, shaped and validated
         # by .sandcastle/agent-workflows/implement-spec/decomposition-schema.ts.
         run: npx tsx .sandcastle/agent-workflows/implement-spec/decompose.ts
+
+      - name: Remove runner copy of Codex credentials
+        if: always()
+        shell: bash
+        run: rm -rf -- "${RUNNER_TEMP:?}/codex-${GITHUB_JOB:?}"
 
       - name: Write the queue as issues
         env:
@@ -387,6 +415,8 @@ jobs:
     timeout-minutes: 60
 
     env:
+      CODEX_HOME: ${{ runner.temp }}/codex-${{ github.job }}
+      CODEX_MODEL: ${{ vars.CODEX_MODEL }}
       GH_REPO: ${{ github.repository }}
       SPEC: ${{ needs.survey.outputs.spec }}
       TICKET: ${{ needs.survey.outputs.ticket }}
@@ -409,8 +439,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Install Codex
+        run: npm install -g @openai/codex
 
       - name: Migrate and seed the database
         run: |
@@ -472,10 +502,34 @@ jobs:
             exit 1
           fi
 
-      - name: Build the ticket
+      # Subscription auth is intended for trusted private automation. The secret
+      # is a snapshot: reseed it if Codex can no longer refresh the session.
+      - name: Supply Codex login credentials
+        shell: bash
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          set -euo pipefail
+          : "${CODEX_MODEL:?Set the CODEX_MODEL repository variable}"
+          : "${CODEX_AUTH_JSON:?Set the CODEX_AUTH_JSON repository secret}"
+          umask 077
+          mkdir -p "$CODEX_HOME"
+          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+          jq -e '.auth_mode == "chatgpt" and (.tokens.refresh_token | type == "string" and length > 0)' \
+            "$CODEX_HOME/auth.json" > /dev/null
+          # Register individual tokens for log masking as well as the JSON secret.
+          jq -r '.tokens | .[] | select(type == "string" and length > 0) | "::add-mask::" + .' \
+            "$CODEX_HOME/auth.json"
+          printf 'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n' > "$CODEX_HOME/config.toml"
+          codex login status
+
+      - name: Build the ticket
         run: npx tsx .sandcastle/agent-workflows/implement-spec/build.ts
+
+      - name: Remove runner copy of Codex credentials
+        if: always()
+        shell: bash
+        run: rm -rf -- "${RUNNER_TEMP:?}/codex-${GITHUB_JOB:?}"
 
       - name: Check the agent committed
         # A run with no commit fails here, so the ticket is parked with

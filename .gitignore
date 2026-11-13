@@ -41,3 +41,7 @@ stryker.log
 
 # Emails written locally instead of sent
 .outbox/
+
+# Codex login credentials stay local.
+/.codex-sf/auth.json
+/.codex/auth.json
