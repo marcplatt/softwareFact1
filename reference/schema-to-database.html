@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Schema, migration, and query reference</title><link rel="stylesheet" href="../assets/teaching.css"><body>
+<nav><a href="../lessons/0002-schema-drizzle-and-database.html">Lesson 02</a> · <a href="sqlite-schema-reading.html">Table syntax reference</a></nav>
+<h1>Where does the work happen?</h1>
+<table><tr><th>Artifact</th><th>Purpose</th></tr>
+<tr><td><code>app/db/schema.ts</code></td><td>Application-side table descriptions, TypeScript information, and ORM defaults.</td></tr>
+<tr><td><code>drizzle.config.ts</code></td><td>Tells Kit which schema, migration directory, and database to use.</td></tr>
+<tr><td><code>drizzle/*.sql</code></td><td>Versioned instructions for changing the actual database.</td></tr>
+<tr><td><code>drizzle/meta/</code></td><td>Snapshots and metadata used for migration generation.</td></tr>
+<tr><td><code>data.db</code></td><td>SQLite’s persisted structure and rows.</td></tr>
+<tr><td><code>app/db/index.ts</code></td><td>Opens the connection and creates the ORM wrapper.</td></tr></table>
+<h2>Vocabulary</h2><p><strong>ORM:</strong> object-relational mapper; here, Drizzle bridges application objects/types and SQL operations. <strong>Driver:</strong> the library through which the application executes database statements. <strong>Schema drift:</strong> disagreement between the application’s declared structure and the database’s actual structure.</p>
+<h2>Remember</h2><p>Editing a declaration changes application assumptions. Applying a migration changes the database. Executing a query uses the structure already installed in the database.</p>
+<p><a href="https://orm.drizzle.team/docs/sql-schema-declaration">Schema declarations</a> · <a href="https://orm.drizzle.team/docs/drizzle-kit-generate">Generation</a> · <a href="https://orm.drizzle.team/docs/drizzle-kit-migrate">Application of migrations</a></p></body></html>

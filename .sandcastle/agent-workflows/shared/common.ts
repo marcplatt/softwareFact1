@@ -28,4 +28,7 @@ export const codexAgent = () =>
     env: {
       CODEX_HOME: required("CODEX_HOME"),
     },
+    sessionStorage: {
+      hostSessionsDir: path.join(required("CODEX_HOME"), "sessions"),
+    },
   });

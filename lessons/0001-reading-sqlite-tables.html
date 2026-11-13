@@ -1,0 +1,38 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Read a table as a set of promises</title><link rel="stylesheet" href="../assets/teaching.css"><body>
+<nav>LESSON 01 · <a href="../reference/sqlite-schema-reading.html">Quick reference</a></nav>
+<h1>Read a table as a set of promises</h1>
+<p>Your goal: explain what these two tables permit, what they prevent, and what you would change for a different requirement. Start with <code>bookmarks</code>; <code>notes</code> repeats the pattern.</p>
+<h2>1. Read the three arguments</h2>
+<pre><code>sqliteTable(
+  "bookmarks",                 // SQL table name
+  { /* column definitions */ }, // fields and column rules
+  (table) => [ /* indexes */ ]   // table-wide configuration
+)</code></pre>
+<p><code>export const bookmarks</code> names the TypeScript value used by the application. Inside the columns, <code>userId: integer("user_id")</code> maps a JavaScript property to a SQL column name. The naming difference is intentional. <a href="https://orm.drizzle.team/docs/sqlite/column-types">Drizzle column documentation</a>.</p>
+<h2>2. Translate each rule</h2>
+<table><tr><th>Code</th><th>Read it as</th></tr>
+<tr><td><code>id: integer("id").primaryKey({ autoIncrement: true })</code></td><td>A numeric identifier for this row, generated when omitted.</td></tr>
+<tr><td><code>userId: integer("user_id").notNull().references(() => users.id)</code></td><td>A required user identifier that must reference an existing user when foreign keys are enabled.</td></tr>
+<tr><td><code>lessonId</code> with the same chain</td><td>A required reference to an existing lesson.</td></tr>
+<tr><td><code>createdAt: text(...).notNull().$defaultFn(...)</code></td><td>A required text value; Drizzle supplies an ISO timestamp on insert when omitted.</td></tr>
+<tr><td><code>uniqueIndex(...).on(table.userId, table.lessonId)</code></td><td>The same user–lesson pair cannot appear twice.</td></tr></table>
+<p>The arrow <code>() => users.id</code> is a callback Drizzle uses to resolve the referenced column; SQLite receives a foreign-key declaration. This app enables enforcement in <code>app/db/index.ts</code>. <a href="https://sqlite.org/foreignkeys.html">SQLite foreign keys</a>.</p>
+<aside><strong>The central rule:</strong> user 7 may bookmark lessons 10 and 11; users 7 and 8 may both bookmark lesson 10. Only repeating the pair (7, 10) is forbidden. “Unique together” does not mean “each unique separately.”</aside>
+<h2>3. Separate three places behavior can live</h2>
+<p><strong>SQLite:</strong> enforces required values, references, and unique pairs in the generated migration <code>drizzle/0012_colossal_maggott.sql</code>.</p>
+<p><strong>Drizzle:</strong> <code>$defaultFn</code> runs in JavaScript. It creates no SQL default. A direct SQL insert must supply the required timestamp. See <a href="https://orm.drizzle.team/docs/sqlite/column-types#default-value">runtime defaults</a>.</p>
+<p><strong>Application:</strong> <code>app/lib/saved.server.ts</code> trims notes, caps them at 2,000 characters, deletes a note when the trimmed body is empty, and explicitly sets <code>updatedAt</code> when saving. The schema alone does none of those things. <code>NOT NULL</code> permits an empty string.</p>
+<h2>4. Evaluate alternatives by the requirement</h2>
+<table><tr><th>Current choice</th><th>When another choice helps</th></tr>
+<tr><td>Separate <code>id</code> plus a unique pair</td><td>A composite primary key on <code>(userId, lessonId)</code> could remove the explicit ID field. Useful when the pair is the identity; a separate ID remains convenient for references and deletes.</td></tr>
+<tr><td><code>AUTOINCREMENT</code></td><td>Plain <code>INTEGER PRIMARY KEY</code> also generates IDs. Prefer the stronger option when automatically reusing deleted IDs would be harmful; otherwise it adds bookkeeping. <a href="https://www.sqlite.org/autoinc.html">SQLite explains the difference</a>.</td></tr>
+<tr><td>Foreign keys with default <code>NO ACTION</code></td><td><code>onDelete: "cascade"</code> can remove dependent bookmarks and notes when a parent is deleted. Choose it only if that matches the desired data lifecycle. <a href="https://sqlite.org/foreignkeys.html#fk_actions">Deletion actions</a>.</td></tr>
+<tr><td>Application timestamp defaults and updates</td><td>A SQL default plus a database trigger can cover writers outside Drizzle. Explicit application timestamps are easy to control in tests; this service accepts a <code>now</code> argument.</td></tr></table>
+<p><strong>My assessment:</strong> the pair constraint matches the service’s “one current note per user per lesson” behavior, including its conflict-update target. If the product needed multiple separate notes per lesson, that constraint would need reconsideration. These are requirement choices, not universal style rules.</p>
+<h2>5. Predict before revealing</h2>
+<p>Two note rows have different IDs but the same user and lesson. Will the second insert succeed?</p>
+<details><summary>Reveal feedback</summary><p>No. Distinct primary keys do not bypass the unique constraint on the user–lesson pair.</p></details>
+<p>You update only <code>body</code> through Drizzle. Does this schema automatically refresh <code>updatedAt</code>?</p>
+<details><summary>Reveal feedback</summary><p>No. Its default supplies an insert value, not an update rule. The project’s save function explicitly supplies the new timestamp.</p></details>
+<p>Primary reading: <a href="https://orm.drizzle.team/docs/sqlite/column-types">Drizzle’s SQLite columns</a>, especially “Not null” and “Default value.” Ask your agent about any unclear line, or bring back your predictions to discuss them.</p>
+</body></html>

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Why schema.ts exists when SQLite already has a schema</title>
+<link rel="stylesheet" href="../assets/teaching.css">
+<body>
+<nav>LESSON 02 · <a href="0001-reading-sqlite-tables.html">Previous lesson</a> · <a href="../reference/schema-to-database.html">Quick reference</a></nav>
+<h1>One structure, represented in two places</h1>
+<p>Your question gets at the key tradeoff: <code>schema.ts</code> describes tables that SQLite also describes internally. Why keep both? By the end, you should be able to explain what this duplication buys you—and predict when the two can disagree.</p>
+
+<h2>1. The database has its own schema</h2>
+<p><code>data.db</code> contains persisted rows and SQLite’s own definitions of tables, columns, indexes, and constraints. SQLite uses those definitions to run queries and enforce rules. It does not read TypeScript.</p>
+<p><code>app/db/schema.ts</code> constructs JavaScript objects describing tables and columns, with TypeScript information attached through Drizzle’s types. It contains no saved note rows. Importing it does not create those tables in SQLite. It supplies a description that other code can use. <a href="https://orm.drizzle.team/docs/sql-schema-declaration">Drizzle schema declarations</a>.</p>
+<aside><strong>Distinction:</strong> the database schema determines what the database currently accepts. The TypeScript schema tells your application and migration tooling what structure you intend to work with. They agree when you keep them synchronized.</aside>
+
+<h2>2. The description serves two separate paths</h2>
+<pre><code>CHANGING THE DATABASE STRUCTURE
+schema.ts + previous migration snapshot
+        ↓ Drizzle Kit: generate
+SQL migration files in drizzle/
+        ↓ Drizzle Kit: migrate
+SQLite changes its tables and constraints
+
+RUNNING THE APPLICATION
+schema.ts table objects + application query
+        ↓ Drizzle ORM builds SQL and parameters
+better-sqlite3 driver executes the statement
+        ↓ SQLite reads/writes data and enforces constraints
+Drizzle maps results to application properties</code></pre>
+<p>In this repo, <code>drizzle.config.ts</code> points Kit at <code>app/db/schema.ts</code>, the <code>drizzle/</code> output directory, and <code>data.db</code>. The scripts <code>npm run db:generate</code> and <code>npm run db:migrate</code> perform the first path. These are explanations, not steps to run for this lesson.</p>
+<p><code>generate</code> compares schema descriptions with the previous migration snapshot; it does not automatically inspect and repair the live database. <code>migrate</code> applies pending migration files. <a href="https://orm.drizzle.team/docs/drizzle-kit-generate">Generate</a> · <a href="https://orm.drizzle.team/docs/drizzle-kit-migrate">Migrate</a>.</p>
+
+<h2>3. Follow one query across the boundary</h2>
+<p>This is the same lookup pattern used in <code>app/lib/saved.server.ts</code>, narrowed to one selected field:</p>
+<pre><code>const note = db
+  .select({ body: notes.body })
+  .from(notes)
+  .where(and(
+    eq(notes.userId, userId),
+    eq(notes.lessonId, lessonId)
+  ))
+  .get();</code></pre>
+<p>Drizzle builds SQL equivalent to:</p>
+<pre><code>SELECT body FROM notes
+WHERE user_id = ? AND lesson_id = ?;
+-- parameters: [userId, lessonId]</code></pre>
+<p>From the schema objects, Drizzle knows that <code>notes.userId</code> means the SQL column <code>user_id</code>. It builds the SQL, binds values as parameters through the driver, and infers the selected result shape for TypeScript. A mistyped property such as <code>notes.userID</code> is caught by TypeScript. SQLite still does the actual searching and constraint enforcement. <a href="https://orm.drizzle.team/docs/sql-schema-declaration">Schema-to-query examples</a>.</p>
+<p>The connection glue lives in <code>app/db/index.ts</code>: <code>new Database("data.db")</code> opens SQLite through the driver; <code>drizzle(getSqlite(), { schema })</code> wraps that connection. This initialization does not run migrations or verify that every declared column exists.</p>
+
+<h2>4. What substantial work is hidden?</h2>
+<p>Your “deep module” intuition is useful: a small query interface coordinates several jobs. Here is where the work lands in this project.</p>
+<table>
+<tr><th>Component</th><th>Work it handles</th></tr>
+<tr><td>Drizzle ORM</td><td>SQL construction, parameter handling, property/column mapping, inferred TypeScript types, and runtime defaults such as <code>$defaultFn</code>.</td></tr>
+<tr><td>Drizzle Kit</td><td>Schema comparison, migration SQL generation, and applying migrations.</td></tr>
+<tr><td>better-sqlite3 + SQLite</td><td>Connection and statement execution; SQLite stores rows, chooses query plans, and enforces installed constraints.</td></tr>
+<tr><td>Your application</td><td>Authorization and business behavior, such as trimming notes and limiting their length.</td></tr>
+</table>
+<p>For example, <code>$defaultFn(() =&gt; new Date().toISOString())</code> is work performed by the ORM at insertion time. The unique user–lesson index becomes work enforced by SQLite after its migration is applied. One declaration file can describe behavior for different layers. <a href="https://orm.drizzle.team/docs/sqlite/column-types#default-value">Runtime defaults</a>.</p>
+
+<h2>5. Could you remove schema.ts?</h2>
+<p>Yes, if you changed the application’s database approach. A raw SQL version could use the existing driver directly:</p>
+<pre><code>const note = connection.prepare(
+  "SELECT body FROM notes WHERE user_id = ? AND lesson_id = ?"
+).get(userId, lessonId);</code></pre>
+<p>You would still need to define and evolve the database tables, perhaps with handwritten SQL migrations. You would also need another way to describe or check result types. Parameterized SQL remains available without an ORM.</p>
+<p><strong>Why choose Drizzle here?</strong> One TypeScript description feeds query typing, name mapping, and migration generation. <strong>Why choose raw SQL?</strong> Direct control and fewer abstractions may matter more to your team than inferred query types. Either approach requires keeping application assumptions aligned with the deployed database.</p>
+
+<h2>6. Predict the failure</h2>
+<p>You add a new column to <code>schema.ts</code>, then immediately query it without applying a database change. What happens?</p>
+<details><summary>Reveal feedback</summary><p>TypeScript can accept the new property, but SQLite will report a missing column when the query executes against an unchanged table. The code description changed; the database did not.</p></details>
+<p>You create a table directly in SQLite. Does an exported TypeScript table object automatically appear in <code>schema.ts</code>?</p>
+<details><summary>Reveal feedback</summary><p>No. The database and source file are separate artifacts. You must update the code description yourself or deliberately use an introspection workflow. Drizzle documents <a href="https://orm.drizzle.team/docs/migrations">both code-first and database-first workflows</a>.</p></details>
+<p>Primary reading: <a href="https://orm.drizzle.team/docs/migrations">Drizzle migration workflows</a>, especially the generate-and-migrate path. Ask your agent any followup questions; explaining where you expect each rule to run is a good way to test your understanding.</p>
+</body></html>

@@ -56,7 +56,7 @@ name: Agent — Explore The Tickets
 #
 # WHAT IT NEEDS
 #   secrets.CODEX_AUTH_JSON — the Codex ChatGPT login cache.
-#   vars.CODEX_MODEL — the Codex model to run.
+#   vars.CODEX_MODEL — optional model override (default: gpt-6.1-sol).
 #   secrets.FACTORY_PAT — a fine-grained personal access token on this
 #     repository. Every call this workflow makes to GitHub uses it: listing
 #     the batch, posting the findings, moving the labels, closing duplicates.
@@ -97,8 +97,7 @@ jobs:
       plan: ${{ steps.plan.outputs.json }}
 
     env:
-      CODEX_HOME: ${{ runner.temp }}/codex-${{ github.job }}
-      CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+      CODEX_MODEL: ${{ vars.CODEX_MODEL || 'gpt-6.1-sol' }}
       GH_REPO: ${{ github.repository }}
 
     steps:
@@ -174,8 +173,10 @@ jobs:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
         run: |
           set -euo pipefail
-          : "${CODEX_MODEL:?Set the CODEX_MODEL repository variable}"
           : "${CODEX_AUTH_JSON:?Set the CODEX_AUTH_JSON repository secret}"
+          # Runner paths are available inside a step, not in the job env block.
+          export CODEX_HOME="${RUNNER_TEMP:?}/codex-${GITHUB_JOB:?}"
+          printf 'CODEX_HOME=%s\n' "$CODEX_HOME" >> "$GITHUB_ENV"
           umask 077
           mkdir -p "$CODEX_HOME"
           printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
