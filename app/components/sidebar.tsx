@@ -5,6 +5,7 @@ import { UserRole } from "~/db/schema";
 import { UserAvatar } from "~/components/user-avatar";
 import { NotificationBell } from "~/components/notification-feed";
 import {
+  Bookmark,
   BookOpen,
   ChartColumn,
   LayoutDashboard,
@@ -21,14 +22,14 @@ import {
   Settings,
 } from "lucide-react";
 
-interface CurrentUser {
+type CurrentUser = {
   id: number;
   name: string;
   role: UserRole;
   avatarUrl: string | null;
-}
+};
 
-interface RecentCourse {
+type RecentCourse = {
   courseId: number;
   title: string;
   slug: string;
@@ -36,20 +37,20 @@ interface RecentCourse {
   completedLessons: number;
   totalLessons: number;
   progress: number;
-}
+};
 
-interface SidebarProps {
+type SidebarProps = {
   currentUser: CurrentUser | null;
   recentCourses?: RecentCourse[];
   isTeamAdmin?: boolean;
-}
+};
 
-interface NavItem {
+type NavItem = {
   label: string;
   to: string;
   icon: React.ReactNode;
   roles: UserRole[] | "all";
-}
+};
 
 const navItems: NavItem[] = [
   {
@@ -62,6 +63,12 @@ const navItems: NavItem[] = [
     label: "Dashboard",
     to: "/dashboard",
     icon: <LayoutDashboard className="size-4" />,
+    roles: [UserRole.Student],
+  },
+  {
+    label: "Saved",
+    to: "/saved",
+    icon: <Bookmark className="size-4" />,
     roles: [UserRole.Student],
   },
   {

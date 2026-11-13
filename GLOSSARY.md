@@ -6,6 +6,10 @@ Cadence sells video courses to students. This glossary covers the language aroun
 
 ### People
 
+**Person**:
+Anyone signed in to Cadence, whatever their role. Someone who isn't signed in is not a Person.
+_Avoid_: Viewer, User, Visitor, Member
+
 **Student**:
 Someone who takes courses on Cadence.
 _Avoid_: Learner, User
@@ -68,6 +72,14 @@ A Seat no Student has claimed yet.
 **Claimed Seat**:
 A Seat a Student has claimed. It belongs to that Student, so a Team Licence with any Claimed Seat can't be refunded.
 
+**Purchasing-Power Price**:
+A price discounted for the country the buyer is in.
+_Avoid_: PPP price, regional price
+
+**Country Lock**:
+The rule that a Purchase made at a Purchasing-Power Price only works from the country it was bought in.
+_Avoid_: PPP block, geo-block, region lock
+
 ### Refunds
 
 **Refund Request**:
@@ -112,3 +124,16 @@ _Avoid_: Alert, Message, Activity
 **Notification Feed**:
 The place inside Cadence where a person sees their Notifications.
 _Avoid_: Inbox, Activity feed
+
+### Bookmarks and Notes
+
+**Bookmark**:
+A Student's flag on a Lesson, so they can find it again. One per Student per
+Lesson, and the Student is the only one who sees it.
+_Avoid_: Favourite, star, saved item
+
+**Note**:
+A Student's own writing about a Lesson, private to the Student who wrote it.
+One per Student per Lesson. A Note is not a Comment — a Comment is addressed
+to other people, a Note is addressed to nobody.
+_Avoid_: Annotation, scratchpad, memo

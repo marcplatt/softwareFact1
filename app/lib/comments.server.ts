@@ -3,20 +3,13 @@ import * as schema from "~/db/schema";
 import { eq } from "drizzle-orm";
 import { comments, courses, lessons, modules } from "~/db/schema";
 import { MAX_COMMENT_LENGTH, MIN_COMMENT_LENGTH } from "~/lib/comments";
+import { markdown } from "~/lib/text";
 import {
   archiveForCommentSafely,
   sendSafely,
   findNotificationPerson,
   type Notifications,
 } from "~/lib/notifications.server";
-
-// ─── Comments ───
-// Posting, editing and soft-deleting comments on a lesson: Discussion Questions and
-// Discussion Replies. See GLOSSARY.md for the language.
-//
-// Every function takes the database first, so tests can hand in an in-memory
-// one, and the Notifications port last, so tests can hand in a fake. Uses
-// positional parameters (project convention).
 
 export type Db = BetterSQLite3Database<typeof schema>;
 
@@ -37,7 +30,8 @@ function getComment(db: Db, commentId: number) {
 export type CommentFailure = { ok: false; error: string };
 
 export type CreateCommentResult =
-  { ok: true; comment: Comment } | CommentFailure;
+  | { ok: true; comment: Comment }
+  | CommentFailure;
 
 /**
  * Posts a Discussion Question (`parentId` null) or a Discussion Reply. A reply
@@ -53,7 +47,7 @@ export async function createComment(
   now: Date,
   notifications: Notifications
 ): Promise<CreateCommentResult> {
-  const trimmed = body.trim();
+  const trimmed = markdown(body.trim());
   if (trimmed.length < MIN_COMMENT_LENGTH) {
     return { ok: false, error: "Comment cannot be empty" };
   }
@@ -203,7 +197,8 @@ function snippetOf(body: string) {
 }
 
 export type DeleteCommentResult =
-  { ok: true; comment: Comment } | CommentFailure;
+  | { ok: true; comment: Comment }
+  | CommentFailure;
 
 /**
  * Soft-deletes a comment and archives the Notifications it caused (the
@@ -216,7 +211,7 @@ export async function deleteComment(
   db: Db,
   commentId: number,
   userId: number,
-  isStaff: boolean,
+  canModerate: boolean,
   now: Date,
   notifications: Notifications
 ): Promise<DeleteCommentResult> {
@@ -224,7 +219,7 @@ export async function deleteComment(
   if (!existing) {
     return { ok: false, error: "Comment not found" };
   }
-  if (existing.userId !== userId && !isStaff) {
+  if (existing.userId !== userId && !canModerate) {
     return { ok: false, error: "You can only delete your own comments" };
   }
   if (existing.deletedAt !== null) {
@@ -256,7 +251,7 @@ export function editComment(
   body: string,
   now: Date
 ): EditCommentResult {
-  const trimmed = body.trim();
+  const trimmed = markdown(body.trim());
   if (trimmed.length < MIN_COMMENT_LENGTH) {
     return { ok: false, error: "Comment cannot be empty" };
   }

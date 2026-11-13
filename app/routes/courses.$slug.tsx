@@ -3,7 +3,7 @@ import { Link, useFetcher, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/courses.$slug";
-import { getCurrentUserId } from "~/lib/session";
+import { coursePermissions } from "~/modules/permissions/course-permissions.server";
 import { db } from "~/db";
 import {
   courses,
@@ -11,7 +11,6 @@ import {
   users,
   modules,
   lessons,
-  enrollments,
   lessonProgress,
   courseRatings,
   LessonProgressStatus,
@@ -36,6 +35,7 @@ import {
   Clock,
   Pencil,
   PlayCircle,
+  ShieldAlert,
   Users,
 } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
@@ -45,17 +45,10 @@ import { data, isRouteErrorResponse } from "react-router";
 import { formatDuration, formatPrice } from "~/lib/utils";
 import { renderMarkdown } from "~/lib/markdown.server";
 import { resolveCountry } from "~/lib/country.server";
-import {
-  calculatePppPrice,
-  getCountryTierInfo,
-} from "~/lib/ppp";
+import { calculatePppPrice, countryName, getCountryTierInfo } from "~/lib/ppp";
 import { parseFormData } from "~/lib/validation";
 import { MAX_RATING, MIN_RATING } from "~/lib/ratings";
 import { StarRating, StarRatingInput } from "~/components/star-rating";
-
-function getCourseBySlug(slug: string) {
-  return db.select().from(courses).where(eq(courses.slug, slug)).get();
-}
 
 function getCourseWithDetails(id: number) {
   const course = db
@@ -100,7 +93,7 @@ function getCourseWithDetails(id: number) {
       ? db
           .select()
           .from(lessons)
-          .where(or(...moduleIds.map((mid) => eq(lessons.moduleId, mid)))!)
+          .where(or(...moduleIds.map((mid) => eq(lessons.moduleId, mid))))
           .orderBy(lessons.position)
           .all()
       : [];
@@ -126,21 +119,10 @@ function getLessonCountForCourse(courseId: number) {
   const count = db
     .select({ count: sql<number>`count(*)` })
     .from(lessons)
-    .where(or(...courseModules.map((m) => eq(lessons.moduleId, m.id)))!)
+    .where(or(...courseModules.map((m) => eq(lessons.moduleId, m.id))))
     .get();
 
   return count?.count ?? 0;
-}
-
-function isUserEnrolled(userId: number, courseId: number) {
-  const enrollment = db
-    .select()
-    .from(enrollments)
-    .where(
-      and(eq(enrollments.userId, userId), eq(enrollments.courseId, courseId))
-    )
-    .get();
-  return !!enrollment;
 }
 
 function getCourseLessonIds(courseId: number): number[] {
@@ -155,7 +137,7 @@ function getCourseLessonIds(courseId: number): number[] {
   const courseLessons = db
     .select({ id: lessons.id })
     .from(lessons)
-    .where(or(...courseModules.map((m) => eq(lessons.moduleId, m.id)))!)
+    .where(or(...courseModules.map((m) => eq(lessons.moduleId, m.id))))
     .all();
 
   return courseLessons.map((l) => l.id);
@@ -177,7 +159,7 @@ function calculateProgress(
         durationMinutes: lessons.durationMinutes,
       })
       .from(lessons)
-      .where(or(...lessonIds.map((id) => eq(lessons.id, id)))!)
+      .where(or(...lessonIds.map((id) => eq(lessons.id, id))))
       .all();
 
     const totalDuration = courseLessons.reduce(
@@ -194,7 +176,7 @@ function calculateProgress(
         and(
           eq(lessonProgress.userId, userId),
           eq(lessonProgress.status, LessonProgressStatus.Completed),
-          or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))!
+          or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))
         )
       )
       .all();
@@ -215,7 +197,7 @@ function calculateProgress(
       and(
         eq(lessonProgress.userId, userId),
         eq(lessonProgress.status, LessonProgressStatus.Completed),
-        or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))!
+        or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))
       )
     )
     .get();
@@ -235,7 +217,7 @@ function getLessonProgressForCourse(userId: number, courseId: number) {
   const courseLessons = db
     .select({ id: lessons.id })
     .from(lessons)
-    .where(or(...courseModules.map((m) => eq(lessons.moduleId, m.id)))!)
+    .where(or(...courseModules.map((m) => eq(lessons.moduleId, m.id))))
     .all();
 
   if (courseLessons.length === 0) return [];
@@ -246,7 +228,7 @@ function getLessonProgressForCourse(userId: number, courseId: number) {
     .where(
       and(
         eq(lessonProgress.userId, userId),
-        or(...courseLessons.map((l) => eq(lessonProgress.lessonId, l.id)))!
+        or(...courseLessons.map((l) => eq(lessonProgress.lessonId, l.id)))
       )
     )
     .all();
@@ -302,7 +284,10 @@ function findRating(userId: number, courseId: number) {
     .select()
     .from(courseRatings)
     .where(
-      and(eq(courseRatings.userId, userId), eq(courseRatings.courseId, courseId))
+      and(
+        eq(courseRatings.userId, userId),
+        eq(courseRatings.courseId, courseId)
+      )
     )
     .get();
 }
@@ -375,12 +360,20 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const slug = params.slug;
-  const course = getCourseBySlug(slug);
-
-  if (!course) {
+  // Public page: signed-out visitors and people without an Enrollment still
+  // see it.
+  const decisions = await coursePermissions.getCourseDecisions(request, {
+    slug: params.slug,
+  });
+  if (!decisions.found) {
     throw data("Course not found", { status: 404 });
   }
+  const { course, person, enrolled, view, take } = decisions;
+  const currentUserId = person?.id ?? null;
+  const canView = view.allowed;
+  const canTake = take.allowed;
+  const countryLock =
+    !take.allowed && take.reason.kind === "country-lock" ? take.reason : null;
 
   const courseWithDetails = getCourseWithDetails(course.id);
   if (!courseWithDetails) {
@@ -388,33 +381,27 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 
   const lessonCount = getLessonCountForCourse(course.id);
-  const currentUserId = await getCurrentUserId(request);
 
-  let enrolled = false;
   let progress = 0;
-  let lessonProgressMap: Record<number, string> = {};
+  const lessonProgressMap: Record<number, string> = {};
   let nextLessonId: number | null = null;
   let refundOffer: RefundOffer | null = null;
 
-  if (currentUserId) {
-    enrolled = isUserEnrolled(currentUserId, course.id);
+  if (person && enrolled) {
+    refundOffer = getRefundOffer(db, person.id, course.id, new Date());
+  }
 
-    if (enrolled) {
-      refundOffer = getRefundOffer(db, currentUserId, course.id, new Date());
+  // Progress is shown only to someone who can take the course.
+  if (person && canTake) {
+    progress = calculateProgress(person.id, course.id, false);
 
-      progress = calculateProgress(currentUserId, course.id, false);
-
-      const progressRecords = getLessonProgressForCourse(
-        currentUserId,
-        course.id
-      );
-      for (const record of progressRecords) {
-        lessonProgressMap[record.lessonId] = record.status;
-      }
-
-      const nextLesson = getNextIncompleteLesson(currentUserId, course.id);
-      nextLessonId = nextLesson?.id ?? null;
+    const progressRecords = getLessonProgressForCourse(person.id, course.id);
+    for (const record of progressRecords) {
+      lessonProgressMap[record.lessonId] = record.status;
     }
+
+    const nextLesson = getNextIncompleteLesson(person.id, course.id);
+    nextLessonId = nextLesson?.id ?? null;
   }
 
   // Render sales copy from Markdown to HTML server-side
@@ -436,6 +423,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     salesCopyHtml,
     lessonCount,
     enrolled,
+    canView,
+    canTake,
+    countryLock,
     progress,
     lessonProgressMap,
     nextLessonId,
@@ -451,22 +441,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 // Enrollment is handled via the purchase confirmation page — this action only
 // records star ratings.
 export async function action({ params, request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
-
-  if (!currentUserId) {
-    throw data("You must be logged in to rate a course.", { status: 401 });
-  }
-
-  const course = getCourseBySlug(params.slug);
-  if (!course) {
-    throw data("Course not found", { status: 404 });
-  }
-
-  if (!isUserEnrolled(currentUserId, course.id)) {
-    throw data("You must be enrolled in this course to rate it.", {
-      status: 403,
-    });
-  }
+  // Rating needs "take", so a Student under Country Lock can't rate.
+  const { person, course } = await coursePermissions.requireCapability(
+    request,
+    "take",
+    { slug: params.slug }
+  );
 
   const formData = await request.formData();
   const parsed = parseFormData(formData, ratingSchema);
@@ -475,7 +455,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     return { ok: false as const, error: "Please choose a rating from 1 to 5." };
   }
 
-  rateCourse(currentUserId, course.id, parsed.data.rating);
+  rateCourse(person.id, course.id, parsed.data.rating);
 
   return { ok: true as const, error: null };
 }
@@ -512,6 +492,7 @@ export function HydrateFallback() {
       <Skeleton className="mb-4 h-8 w-40" />
       <div className="space-y-4">
         {Array.from({ length: 3 }).map((_, i) => (
+          // oxlint-disable-next-line react/no-array-index-key -- placeholders never reorder
           <Card key={i}>
             <CardHeader>
               <Skeleton className="h-5 w-48" />
@@ -520,6 +501,7 @@ export function HydrateFallback() {
             <CardContent>
               <div className="space-y-2">
                 {Array.from({ length: 4 }).map((_, j) => (
+                  // oxlint-disable-next-line react/no-array-index-key -- placeholders never reorder
                   <Skeleton key={j} className="h-8 w-full" />
                 ))}
               </div>
@@ -537,6 +519,9 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
     salesCopyHtml,
     lessonCount,
     enrolled,
+    canView,
+    canTake,
+    countryLock,
     progress,
     lessonProgressMap,
     nextLessonId,
@@ -700,6 +685,7 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
         <div className="lg:col-span-2">
           <div
             className="prose prose-neutral dark:prose-invert max-w-none"
+            // oxlint-disable-next-line react/no-danger -- the instructor wrote this Markdown
             dangerouslySetInnerHTML={{ __html: salesCopyHtml }}
           />
 
@@ -719,7 +705,7 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
           <div className="mt-8">
             <CourseContent
               course={course}
-              enrolled={enrolled}
+              canView={canView}
               isInstructor={isInstructor}
               lessonProgressMap={lessonProgressMap}
             />
@@ -748,39 +734,59 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
                 </Link>
               ) : enrolled ? (
                 <>
-                  <div className="mb-2 flex items-center justify-between text-sm">
-                    <span>{progress}% complete</span>
-                  </div>
-                  <div className="mb-4 h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  {course.modules.length > 0 &&
-                    (() => {
-                      const targetLessonId =
-                        nextLessonId ?? course.modules[0].lessons[0]?.id;
-                      return targetLessonId ? (
-                        <Link
-                          to={`/courses/${course.slug}/lessons/${targetLessonId}`}
-                        >
-                          <Button className="w-full">
-                            <PlayCircle className="mr-2 size-4" />
-                            {progress > 0
-                              ? "Continue Learning"
-                              : "Start Course"}
-                          </Button>
-                        </Link>
-                      ) : null;
-                    })()}
+                  {countryLock && (
+                    <div className="flex gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+                      <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                      <p>
+                        You bought this course at a Purchasing-Power Price in{" "}
+                        <strong>
+                          {countryName(countryLock.purchaseCountry)}
+                        </strong>
+                        , so it can&apos;t be used from{" "}
+                        <strong>
+                          {countryName(countryLock.currentCountry)}
+                        </strong>
+                        .
+                      </p>
+                    </div>
+                  )}
+                  {canTake && (
+                    <>
+                      <div className="mb-2 flex items-center justify-between text-sm">
+                        <span>{progress}% complete</span>
+                      </div>
+                      <div className="mb-4 h-2 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      {course.modules.length > 0 &&
+                        (() => {
+                          const targetLessonId =
+                            nextLessonId ?? course.modules[0].lessons[0]?.id;
+                          return targetLessonId ? (
+                            <Link
+                              to={`/courses/${course.slug}/lessons/${targetLessonId}`}
+                            >
+                              <Button className="w-full">
+                                <PlayCircle className="mr-2 size-4" />
+                                {progress > 0
+                                  ? "Continue Learning"
+                                  : "Start Course"}
+                              </Button>
+                            </Link>
+                          ) : null;
+                        })()}
+                    </>
+                  )}
                   <Link to={teamPurchaseLink}>
                     <Button variant="outline" className="w-full">
                       <Users className="mr-2 size-4" />
                       Buy More Seats
                     </Button>
                   </Link>
-                  <RateCourse userRating={userRating} />
+                  {canTake && <RateCourse userRating={userRating} />}
                   {refundOffer && (
                     <RequestRefund
                       slug={course.slug}
@@ -933,7 +939,7 @@ function RequestRefund({
 
 function CourseContent({
   course,
-  enrolled,
+  canView,
   isInstructor,
   lessonProgressMap,
 }: {
@@ -950,7 +956,7 @@ function CourseContent({
       }>;
     }>;
   };
-  enrolled: boolean;
+  canView: boolean;
   isInstructor: boolean;
   lessonProgressMap: Record<number, string>;
 }) {
@@ -1014,7 +1020,7 @@ function CourseContent({
 
                     return (
                       <li key={lesson.id}>
-                        {enrolled ? (
+                        {canView ? (
                           <Link
                             to={`/courses/${course.slug}/lessons/${lesson.id}`}
                             className="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"

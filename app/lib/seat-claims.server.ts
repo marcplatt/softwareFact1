@@ -13,13 +13,7 @@ import {
   findNotificationPerson,
   type Notifications,
 } from "~/lib/notifications.server";
-
-// ─── Seat claims ───
-// A Student claiming a Seat on a Team Licence, which gives them an Enrollment
-// through the Enrollment service. See GLOSSARY.md for the language.
-//
-// Every function takes the database first, so tests can hand in an in-memory
-// one. Uses positional parameters (project convention).
+import { checkCountryLock } from "~/lib/ppp";
 
 export type Db = BetterSQLite3Database<typeof schema>;
 
@@ -44,7 +38,7 @@ export async function claimSeat(
   db: Db,
   seatCode: string,
   studentId: number,
-  studentCountry: string,
+  studentCountry: string | null,
   now: Date,
   notifications: Notifications
 ): Promise<ClaimSeatResult> {
@@ -66,7 +60,7 @@ function claimSeatInTransaction(
   db: Db,
   seatCode: string,
   studentId: number,
-  studentCountry: string,
+  studentCountry: string | null,
   now: Date
 ): ClaimSeatResult {
   return db.transaction((tx): ClaimSeatResult => {
@@ -95,12 +89,7 @@ function claimSeatInTransaction(
       return { ok: false, error: "You are already enrolled in this course" };
     }
 
-    const purchase = tx
-      .select({ country: purchases.country })
-      .from(purchases)
-      .where(eq(purchases.id, seat.purchaseId))
-      .get();
-    if (purchase?.country && purchase.country !== studentCountry) {
+    if (isSeatCountryLocked(tx, seat, studentCountry)) {
       return {
         ok: false,
         error:
@@ -125,6 +114,34 @@ function claimSeatInTransaction(
 
     return { ok: true, seat: claimed, enrollment: enrolled.enrollment };
   });
+}
+
+/**
+ * Whether the Country Lock stops this Seat being claimed from the Student's
+ * country. Only a Team Licence bought at a Purchasing-Power Price is locked.
+ */
+export function isSeatCountryLocked(
+  db: Db,
+  seat: Seat,
+  studentCountry: string | null
+): boolean {
+  const purchase = db
+    .select({ country: purchases.country })
+    .from(purchases)
+    .where(eq(purchases.id, seat.purchaseId))
+    .get();
+  const course = db
+    .select({ price: courses.price, pppEnabled: courses.pppEnabled })
+    .from(courses)
+    .where(eq(courses.id, seat.courseId))
+    .get();
+  if (!purchase || !course) return false;
+  return checkCountryLock(
+    course.price,
+    course.pppEnabled,
+    purchase.country,
+    studentCountry
+  ).blocked;
 }
 
 async function notifyTeamAdmin(

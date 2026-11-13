@@ -1,4 +1,13 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "~/db/schema";
@@ -30,13 +39,7 @@ import {
   type RuleBreak,
 } from "~/lib/refund-rules";
 
-// ─── Refunds ───
-// Everything about Refund Requests: whether a Purchase may be refunded, raising
-// a Refund Request, and a Platform Admin deciding one. See GLOSSARY.md for the
-// language and docs/adr/0001–0004 for why it works the way it does.
-//
-// Every function takes the database first, so tests can hand in an in-memory
-// one. Uses positional parameters (project convention).
+// docs/adr/0001–0004 explain why Refunds work the way they do.
 
 export type Db = BetterSQLite3Database<typeof schema>;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -93,6 +96,30 @@ export type PurchaseKind = "individual_purchase" | "team_licence";
 
 function kindOf(seats: Seat[]): PurchaseKind {
   return seats.length > 0 ? "team_licence" : "individual_purchase";
+}
+
+/**
+ * A buyer's newest Individual Purchase of a course, or null. Their Team
+ * Licences are skipped, and a Student who only claimed a Seat has none. Read
+ * by the refund offer and by the playback Country Lock (ADR-0013).
+ */
+export function getNewestIndividualPurchase(
+  db: Queryable,
+  buyerId: number,
+  courseId: number
+): Purchase | null {
+  const newestFirst = db
+    .select()
+    .from(purchases)
+    .where(and(eq(purchases.userId, buyerId), eq(purchases.courseId, courseId)))
+    .orderBy(desc(purchases.createdAt), desc(purchases.id))
+    .all();
+
+  return (
+    newestFirst.find(
+      (purchase) => kindOf(getSeats(db, purchase.id)) === "individual_purchase"
+    ) ?? null
+  );
 }
 
 function getRefundRequestWithStatus(
@@ -221,8 +248,7 @@ function getRefundFigures(db: Queryable, purchase: Purchase): RefundFigures {
 /** What the buyer is told when they can't raise a Refund Request. */
 const RULE_BREAK_ERRORS: Record<RuleBreak, string> = {
   window_closed: `The ${REFUND_WINDOW_DAYS}-day window has closed.`,
-  watched_too_much:
-    "You have watched too much of this course to get a refund.",
+  watched_too_much: "You have watched too much of this course to get a refund.",
   completed_too_much:
     "You have completed too much of this course to request a refund.",
   seat_claimed: "A Team Licence with a claimed Seat cannot be refunded.",
@@ -265,7 +291,11 @@ function findRuleBreaks(
 
 // ─── Raising a Refund Request ───
 
-export type Failure = { ok: false; status: 400 | 403 | 404 | 409; error: string };
+export type Failure = {
+  ok: false;
+  status: 400 | 403 | 404 | 409;
+  error: string;
+};
 
 type RefundCheck = { ok: true; purchase: Purchase } | Failure;
 
@@ -331,17 +361,7 @@ export function getRefundOffer(
   courseId: number,
   now: Date
 ): RefundOffer | null {
-  const newestFirst = db
-    .select()
-    .from(purchases)
-    .where(and(eq(purchases.userId, buyerId), eq(purchases.courseId, courseId)))
-    .orderBy(desc(purchases.createdAt), desc(purchases.id))
-    .all();
-
-  const individualPurchase = newestFirst.find(
-    (purchase) => kindOf(getSeats(db, purchase.id)) === "individual_purchase"
-  );
-
+  const individualPurchase = getNewestIndividualPurchase(db, buyerId, courseId);
   if (!individualPurchase) return null;
 
   const check = checkRefundRequest(db, individualPurchase.id, buyerId, now);
@@ -546,7 +566,8 @@ export function listRefundRequestsForReview(
       // A Claimed Seat belongs to another student, so the only way out of
       // that request is a decline. See docs/adr/0003.
       canApprove:
-        row.status === RefundStatus.Open && !ruleBreaks.includes("seat_claimed"),
+        row.status === RefundStatus.Open &&
+        !ruleBreaks.includes("seat_claimed"),
     };
   });
 }
@@ -854,7 +875,11 @@ async function notifyDecision(
 
   const purchase = getPurchase(db, refundRequest.purchaseId);
   if (!purchase) return;
-  const buyer = db.select().from(users).where(eq(users.id, purchase.userId)).get();
+  const buyer = db
+    .select()
+    .from(users)
+    .where(eq(users.id, purchase.userId))
+    .get();
   const course = db
     .select()
     .from(courses)

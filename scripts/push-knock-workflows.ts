@@ -83,7 +83,7 @@ async function mapi(
 ) {
   const url = new URL(`https://control.knock.app/v1${pathname}`);
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-  const res = await fetch(url, {
+  const response = await fetch(url, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -91,9 +91,9 @@ async function mapi(
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`${method} ${pathname} → ${res.status}: ${text}`);
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`${method} ${pathname} → ${response.status}: ${text}`);
   }
   return text ? JSON.parse(text) : null;
 }
@@ -109,7 +109,9 @@ const channels: { entries: { id: string; key: string }[] } = await mapi(
 );
 const channel = channels.entries.find((c) => c.id === channelId);
 if (!channel) {
-  console.error(`No Knock channel has the id ${channelId} (KNOCK_FEED_CHANNEL_ID).`);
+  console.error(
+    `No Knock channel has the id ${channelId} (KNOCK_FEED_CHANNEL_ID).`
+  );
   process.exit(1);
 }
 

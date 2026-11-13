@@ -1,18 +1,16 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor.$courseId.students";
-import { getCurrentUserId } from "~/lib/session";
-import { UserRole } from "~/db/schema";
+import { coursePermissions } from "~/modules/permissions/course-permissions.server";
 import { isLapsed } from "~/lib/enrollments";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { AlertTriangle, ArrowLeft, Users, Award } from "lucide-react";
-import { data, isRouteErrorResponse } from "react-router";
+import { isRouteErrorResponse } from "react-router";
 import { db } from "~/db";
 import {
   modules,
   lessons,
   users,
-  courses,
   enrollments,
   quizzes,
   quizAttempts,
@@ -24,10 +22,6 @@ import { eq, and, or, sql, desc, inArray, max } from "drizzle-orm";
 
 function getUserById(id: number) {
   return db.select().from(users).where(eq(users.id, id)).get();
-}
-
-function getCourseById(id: number) {
-  return db.select().from(courses).where(eq(courses.id, id)).get();
 }
 
 function getCourseEnrolledStudents(courseId: number) {
@@ -109,7 +103,7 @@ function getCourseLessonIds(courseId: number): number[] {
   const courseLessons = db
     .select({ id: lessons.id })
     .from(lessons)
-    .where(or(...courseModules.map((m) => eq(lessons.moduleId, m.id)))!)
+    .where(or(...courseModules.map((m) => eq(lessons.moduleId, m.id))))
     .all();
 
   return courseLessons.map((l) => l.id);
@@ -131,7 +125,7 @@ function calculateProgress(
         durationMinutes: lessons.durationMinutes,
       })
       .from(lessons)
-      .where(or(...lessonIds.map((id) => eq(lessons.id, id)))!)
+      .where(or(...lessonIds.map((id) => eq(lessons.id, id))))
       .all();
 
     const totalDuration = courseLessons.reduce(
@@ -148,7 +142,7 @@ function calculateProgress(
         and(
           eq(lessonProgress.userId, userId),
           eq(lessonProgress.status, LessonProgressStatus.Completed),
-          or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))!
+          or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))
         )
       )
       .all();
@@ -169,7 +163,7 @@ function calculateProgress(
       and(
         eq(lessonProgress.userId, userId),
         eq(lessonProgress.status, LessonProgressStatus.Completed),
-        or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))!
+        or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))
       )
     )
     .get();
@@ -186,41 +180,12 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to view student roster.", {
-      status: 401,
-    });
-  }
-
-  const user = getUserById(currentUserId);
-
-  if (
-    !user ||
-    (user.role !== UserRole.Instructor && user.role !== UserRole.Admin)
-  ) {
-    throw data("Only instructors and admins can access this page.", {
-      status: 403,
-    });
-  }
-
-  const courseId = parseInt(params.courseId, 10);
-  if (isNaN(courseId)) {
-    throw data("Invalid course ID.", { status: 400 });
-  }
-
-  const course = getCourseById(courseId);
-
-  if (!course) {
-    throw data("Course not found.", { status: 404 });
-  }
-
-  if (course.instructorId !== currentUserId && user.role !== UserRole.Admin) {
-    throw data("You can only view students for your own courses.", {
-      status: 403,
-    });
-  }
+  const { course } = await coursePermissions.requireCapability(
+    request,
+    "manage",
+    { courseId: params.courseId }
+  );
+  const courseId = course.id;
 
   // Get all enrolled students
   const enrolledStudents: {
@@ -520,7 +485,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
           ? error.data
           : "Please select a user from the DevUI panel.";
     } else if (error.status === 403) {
-      title = "Access denied";
+      title = "Not allowed";
       message =
         typeof error.data === "string"
           ? error.data
